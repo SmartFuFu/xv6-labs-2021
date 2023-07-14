@@ -140,6 +140,8 @@ found:
   memset(&p->context, 0, sizeof(p->context));
   p->context.ra = (uint64)forkret;
   p->context.sp = p->kstack + PGSIZE;
+   // Zero initializes the tracemask for a new process << 新的进程默认不追踪sys calls
+  p->trace_mask=0;
 
   return p;
 }
@@ -164,6 +166,7 @@ freeproc(struct proc *p)
   p->killed = 0;
   p->xstate = 0;
   p->state = UNUSED;
+  p->trace_mask=0;
 }
 
 // Create a user page table for a given process,
@@ -276,12 +279,12 @@ fork(void)
   struct proc *np;
   struct proc *p = myproc();
 
-  // Allocate process.
+  // Allocate process. 调用 allocproc() 函数来分配一个新的进程结构体，如果分配失败则返回 -1。
   if((np = allocproc()) == 0){
     return -1;
   }
 
-  // Copy user memory from parent to child.
+  // Copy user memory from parent to child.复制父进程的用户内存到子进程。如果复制失败，则释放子进程并返回 -1。
   if(uvmcopy(p->pagetable, np->pagetable, p->sz) < 0){
     freeproc(np);
     release(&np->lock);
@@ -289,11 +292,14 @@ fork(void)
   }
   np->sz = p->sz;
 
-  // copy saved user registers.
+  // copy saved user registers.复制父进程的保存的用户寄存器状态到子进程的陷阱帧。
   *(np->trapframe) = *(p->trapframe);
 
-  // Cause fork to return 0 in the child.
+  // Cause fork to return 0 in the child.  设置子进程的陷阱帧中的 a0 寄存器为 0，以使子进程在 fork() 返回时返回 0。
   np->trapframe->a0 = 0;
+
+  // copy trace_mask in the child 将子进程的 trace_mask 成员设置为父进程的 trace_mask，以保持子进程的追踪设置。
+  np->trace_mask=p->trace_mask;
 
   // increment reference counts on open file descriptors.
   for(i = 0; i < NOFILE; i++)
@@ -653,4 +659,21 @@ procdump(void)
     printf("%d %s %s", p->pid, state, p->name);
     printf("\n");
   }
+}
+
+// Count how many processes are not in the state of UNUSED
+uint64
+count_free_proc(void) {
+  struct proc *p;
+  uint64 count = 0;
+  for(p = proc; p < &proc[NPROC]; p++) {
+    // 此处不一定需要加锁, 因为该函数是只读不写
+    // 但proc.c里其他类似的遍历时都加了锁, 那我们也加上
+    acquire(&p->lock);
+    if(p->state != UNUSED) {
+      count += 1;
+    }
+    release(&p->lock);
+  }
+  return count;
 }
