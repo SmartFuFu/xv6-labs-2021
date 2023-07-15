@@ -48,16 +48,17 @@
 // the kernel expects there to be RAM
 // for use by the kernel and user pages
 // from physical address 0x80000000 to PHYSTOP.
-#define KERNBASE 0x80000000L
-#define PHYSTOP (KERNBASE + 128*1024*1024)
+#define KERNBASE 0x80000000L                        //kernbase，表示内核的基址（kernel base address）
+#define PHYSTOP (KERNBASE + 128*1024*1024)          //kernbase 加上 128MB，表示物理内存的上限地址
 
 // map the trampoline page to the highest address,
 // in both user and kernel space.
-#define TRAMPOLINE (MAXVA - PGSIZE)
+//内存页起始地址
+#define TRAMPOLINE (MAXVA - PGSIZE)  //TRAMPOLINE 定义为 MAXVA（最高虚拟地址）减去一个页面大小（PGSIZE）TRAMPOLINE 映射到用户空间和内核空间的最高地址。
 
 // map kernel stacks beneath the trampoline,
 // each surrounded by invalid guard pages.
-#define KSTACK(p) (TRAMPOLINE - (p)*2*PGSIZE - 3*PGSIZE)
+#define KSTACK(p) (TRAMPOLINE - (p)*2*PGSIZE - 3*PGSIZE)  //KSTACK(p) 定义为 TRAMPOLINE 减去 (p)2PGSIZE 减去 3*PGSIZE。
 
 // User memory layout.
 // Address zero first:
@@ -69,9 +70,9 @@
 //   USYSCALL (shared with kernel)
 //   TRAPFRAME (p->trapframe, used by the trampoline)
 //   TRAMPOLINE (the same page as in the kernel)
-#define TRAPFRAME (TRAMPOLINE - PGSIZE)
+#define TRAPFRAME (TRAMPOLINE - PGSIZE) //用于处理特定的操作或跳转，如用户态到内核态的转换。
 #ifdef LAB_PGTBL
-#define USYSCALL (TRAPFRAME - PGSIZE)
+#define USYSCALL (TRAPFRAME - PGSIZE)   //表示与内核共享的地址空间中的一个特定位置
 
 struct usyscall {
   int pid;  // Process ID
