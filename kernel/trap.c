@@ -5,10 +5,17 @@
 #include "spinlock.h"
 #include "proc.h"
 #include "defs.h"
+#include "elf.h"
+#include "fs.h"
 
+pte_t *
+walk(pagetable_t pagetable, uint64 va, int alloc);
+void *kcopy_n_deref(void *pa);
+void krefpage(void *pa);
 struct spinlock tickslock;
 uint ticks;
-
+int uvmcheckcowpage(uint64 va) ;
+int uvmcowcopy(uint64 va) ;
 extern char trampoline[], uservec[], userret[];
 
 // in kernelvec.S, calls kerneltrap().
@@ -67,6 +74,10 @@ usertrap(void)
     syscall();
   } else if((which_dev = devintr()) != 0){
     // ok
+  } else if((r_scause() == 13 || r_scause() == 15) && uvmcheckcowpage(r_stval())) { // copy-on-write
+    if(uvmcowcopy(r_stval()) == -1){ // 如果内存不足，则杀死进程
+      p->killed = 1;
+    }
   } else {
     printf("usertrap(): unexpected scause %p pid=%d\n", r_scause(), p->pid);
     printf("            sepc=%p stval=%p\n", r_sepc(), r_stval());
@@ -216,5 +227,39 @@ devintr()
   } else {
     return 0;
   }
+}
+
+int uvmcheckcowpage(uint64 va) {
+  pte_t *pte;
+  struct proc *p = myproc();
+  
+  return va < p->sz // 在进程内存范围内
+    && ((pte = walk(p->pagetable, va, 0))!=0)
+    && (*pte & PTE_V) // 页表项存在
+    && (*pte & PTE_COW); // 页是一个懒复制页
+}
+
+// 实复制一个懒复制页，并重新映射为可写
+int uvmcowcopy(uint64 va) {
+  pte_t *pte;
+  struct proc *p = myproc();
+
+  if((pte = walk(p->pagetable, va, 0)) == 0)
+    panic("uvmcowcopy: walk");
+  
+  // 调用 kalloc.c 中的 kcopy_n_deref 方法，复制页
+  // (如果懒复制页的引用已经为 1，则不需要重新分配和复制内存页，只需清除 PTE_COW 标记并标记 PTE_W 即可)
+  uint64 pa = PTE2PA(*pte);
+  uint64 new = (uint64)kcopy_n_deref((void*)pa); // 将一个懒复制的页引用变为一个实复制的页
+  if(new == 0)
+    return -1;
+  
+  // 重新映射为可写，并清除 PTE_COW 标记
+  uint64 flags = (PTE_FLAGS(*pte) | PTE_W) & ~PTE_COW;
+  uvmunmap(p->pagetable, PGROUNDDOWN(va), 1, 0);
+  if(mappages(p->pagetable, va, 1, new, flags) == -1) {
+    panic("uvmcowcopy: mappages");
+  }
+  return 0;
 }
 
