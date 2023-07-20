@@ -601,39 +601,40 @@ uint64
 sys_munmap(void)
 {
   uint64 addr, sz;
-
+ // 获取传递给系统调用的参数
   if(argaddr(0, &addr) < 0 || argaddr(1, &sz) < 0 || sz == 0)
     return -1;
 
   struct proc *p = myproc();
 
+  // 查找与虚拟地址匹配的vma
   struct vma *v = findvma(p, addr);
   if(v == 0) {
     return -1;
   }
-
+  // 检查是否在vma内部试图取消映射
   if(addr > v->vastart && addr + sz < v->vastart + v->sz) {
     // trying to "dig a hole" inside the memory range.
     return -1;
   }
-
+ // 对地址进行对齐
   uint64 addr_aligned = addr;
   if(addr > v->vastart) {
     addr_aligned = PGROUNDUP(addr);
   }
-
+// 计算要取消映射的字节数
   int nunmap = sz - (addr_aligned-addr); // nbytes to unmap
   if(nunmap < 0)
     nunmap = 0;
-  
+  // 调用vmaunmap函数，执行自定义的内存页面取消映射操作，用于mmapped页面
   vmaunmap(p->pagetable, addr_aligned, nunmap, v); // custom memory page unmap routine for mmapped pages.
-
+// 更新vma的相关属性
   if(addr <= v->vastart && addr + sz > v->vastart) { // unmap at the beginning
     v->offset += addr + sz - v->vastart;
     v->vastart = addr + sz;
   }
   v->sz -= sz;
-
+// 若vma的大小为0，则关闭相关文件并将vma标记为无效
   if(v->sz <= 0) {
     fileclose(v->f);
     v->valid = 0;
